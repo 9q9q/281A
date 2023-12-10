@@ -97,7 +97,7 @@ def softknn(train_features,train_targets,test_features,test_targets,k=30,T=0.03,
 
     return top1, top5
     
-def visualize_grid(img,figsize=(6,6)):
+def visualize_grid(img,figsize=(6,6), colorbar=False, title=""):
     """
     Displaying a list of image in grids. 
     Args:
@@ -112,6 +112,10 @@ def visualize_grid(img,figsize=(6,6)):
     imshow  = rearrange(img[:(len(img)//grid_h)*grid_h],"(h1 w1) c h w ->  (h1 h) (w1 w) c",h1=grid_h)
     plt.imshow(imshow)
     plt.axis('off')
+    if colorbar:
+        plt.colorbar()
+    if title:
+        plt.title(title)
     
 # essential function to implement SMT
 def sparsify_general1(x, basis, t = 0.3):
@@ -275,14 +279,14 @@ temp1 = torch.zeros(BASIS1_NUM, batch_size, device=device)
 temp2 = torch.zeros(BASIS1_NUM, batch_size * RG**2, device=device)
 
 #%%  play with one img
-idx = 0
+idx =2
 #     unfold each image into a bag of patches
 patches =unfold_image(imgs_train[idx:idx+batch_size].to(device),PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
 #     demean/center each image patch
 patches = patches.sub(patches.mean((2,3),keepdim =True))
 #     aggregate all patches into together (squeeze into one dimension).
 x = rearrange(patches,"bsz c p_h p_w b  ->bsz (c p_h p_w) b ")  # bs x num_filters x num_patches_per_img
-one_x = x[0]
+one_x = x[idx]
 x_flat = rearrange(one_x,"p_d hw -> p_d hw")  # now num_filters x num_patches_per_img
 #     apply whiten transform to each image patch
 x_flat = torch.mm(whiteMat, x_flat)
@@ -293,3 +297,36 @@ y = (basis1.T @ x_flat).float()  # num_filters x num_patches_per_img
 
 y_vis = rearrange(y, "b (c p_h p_w) -> b c p_h p_w", c=1, p_h=RG)
 visualize_grid(y_vis.cpu()[:100])
+
+#%% contruct psi, num_patches_per_img x num_patches_per_img
+# each column is a 1d gaussian centered on the diagonal
+sigma = 1
+psi = torch.zeros(RG**2, RG**2, device=device)
+for i in range(RG**2):
+    # 1d gaussian function centered on the diagonal
+    psi[:,i] = torch.exp(-(torch.arange(RG**2) - i)**2 / (2 * sigma**2))
+
+plt.imshow(psi.cpu()[:100,:100])    
+plt.show()
+
+#%% positional encoding?
+A = y @ psi
+# normalize A
+# A = A.div(A.norm(dim = 0, keepdim=True)+1e-9)
+A_vis = rearrange(A, "b (c p_h p_w) -> b c p_h p_w", c=1, p_h=RG)
+visualize_grid(A_vis.cpu()[:100])
+visualize_grid(y_vis.cpu()[:100])
+
+#%% project back to image space?
+A_proj = basis1 @ A
+A_proj_vis = rearrange(A_proj.T,"bsz (c p_h p_w) -> bsz c p_h p_w", p_h=PATCH_SIZE, p_w = PATCH_SIZE,c=3)
+visualize_grid(A_proj_vis.cpu(), title="projected y with positional encoding")
+
+y_proj = basis1 @ y
+y_proj_vis = rearrange(y_proj.T,"bsz (c p_h p_w) -> bsz c p_h p_w", p_h=PATCH_SIZE, p_w = PATCH_SIZE,c=3)
+visualize_grid(y_proj_vis.cpu(), title="projected y without positional encoding")
+
+#%% vis one x
+one_x_vis = rearrange(one_x, "(c p_h p_w) n -> n c p_h p_w", c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE)
+visualize_grid(one_x_vis.cpu(), title="one x patchified", colorbar=True)
+
