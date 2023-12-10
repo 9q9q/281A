@@ -279,19 +279,26 @@ temp1 = torch.zeros(BASIS1_NUM, batch_size, device=device)
 temp2 = torch.zeros(BASIS1_NUM, batch_size * RG**2, device=device)
 
 #%%  play with one img
-idx =2
+idx =9
 #     unfold each image into a bag of patches
-patches =unfold_image(imgs_train[idx:idx+batch_size].to(device),PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
+patches = unfold_image(imgs_train[idx:idx+batch_size].to(device),PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
 #     demean/center each image patch
 patches = patches.sub(patches.mean((2,3),keepdim =True))
 #     aggregate all patches into together (squeeze into one dimension).
 x = rearrange(patches,"bsz c p_h p_w b  ->bsz (c p_h p_w) b ")  # bs x num_filters x num_patches_per_img
-one_x = x[idx]
+img_id = 4
+one_x = x[img_id]
 x_flat = rearrange(one_x,"p_d hw -> p_d hw")  # now num_filters x num_patches_per_img
 #     apply whiten transform to each image patch
 x_flat = torch.mm(whiteMat, x_flat)
 #     normalize each image patch
 x_flat = x_flat.div(x_flat.norm(dim = 0, keepdim=True)+1e-9)
+
+torch.save(basis1, "basis1.pt")
+torch.save(x_flat, "x_flat.pt")
+torch.save(imgs_train, "imgs_train.pt")
+torch.save(patches, "patches.pt")
+torch.save(whiteMat, "whiteMat.pt")
 
 y = (basis1.T @ x_flat).float()  # num_filters x num_patches_per_img
 
@@ -328,5 +335,18 @@ visualize_grid(y_proj_vis.cpu(), title="projected y without positional encoding"
 
 #%% vis one x
 one_x_vis = rearrange(one_x, "(c p_h p_w) n -> n c p_h p_w", c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE)
-visualize_grid(one_x_vis.cpu(), title="one x patchified", colorbar=True)
+visualize_grid(one_x_vis.cpu(), title=f"x {img_id} patchified")
+plt.imshow(one_x_vis[30].cpu().permute(1, 2, 0))
 
+one_x_vis_whitened = rearrange(x_flat, "(c p_h p_w) n -> n c p_h p_w", c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE)
+visualize_grid(one_x_vis_whitened.cpu(), title=f"x {img_id} patchified")
+
+
+plt.imshow(imgs_train[img_id].permute(1,2,0))
+
+visualize_grid(one_x_vis[:,0,:,:].unsqueeze(1).cpu(), title=f"x {img_id} patchified", colorbar=True)
+visualize_grid(one_x_vis[:,1,:,:].unsqueeze(1).cpu(), title=f"x {img_id} patchified", colorbar=True)
+visualize_grid(one_x_vis[:,2,:,:].unsqueeze(1).cpu(), title=f"x {img_id} patchified", colorbar=True)
+
+visualize_grid(imgs_train[:49,:,:,:])
+visualize_grid(dictionary_vis.cpu())
