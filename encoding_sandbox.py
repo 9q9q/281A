@@ -279,7 +279,7 @@ temp1 = torch.zeros(BASIS1_NUM, batch_size, device=device)
 temp2 = torch.zeros(BASIS1_NUM, batch_size * RG**2, device=device)
 
 #%%  play with one img
-idx =9
+idx =0
 #     unfold each image into a bag of patches
 patches = unfold_image(imgs_train[idx:idx+batch_size].to(device),PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
 #     demean/center each image patch
@@ -294,7 +294,8 @@ x_flat = torch.mm(whiteMat, x_flat)
 #     normalize each image patch
 x_flat = x_flat.div(x_flat.norm(dim = 0, keepdim=True)+1e-9)
 
-torch.save(basis1, "basis1.pt")
+# torch.save(basis1, "basis1.pt")
+torch.save(basis1_vis, "basis1_vis.pt")
 torch.save(x_flat, "x_flat.pt")
 torch.save(imgs_train, "imgs_train.pt")
 torch.save(patches, "patches.pt")
