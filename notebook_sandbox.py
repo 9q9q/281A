@@ -589,16 +589,29 @@ one_patch = patches[img_id, :, :, :, beta_id]
 # visualize_grid(imgs_test[0].unsqueeze(0))
 # show one patch
 visualize_grid(one_patch.unsqueeze(0)); plt.show()
-# show rows of Ps with highest activations (abs value)
+# show rows of Ps with highest activations for this image (abs value)
 beta_sorted, beta_sorted_id = torch.sort(one_beta.abs(), descending=True)
 P_sorted = P_proj_vis[beta_sorted_id] 
-visualize_grid(P_sorted[:10])  # look at top 10
+visualize_grid(P_sorted[:16])  # look at top 10
 
-# show highest activation phi
+# show highest activation phi for this image
 one_ahat = ahat[img_id, beta_id]
-alpha_sorted, alpha_sorted_id = torch.sort(one_ahat.abs(), descending=True)
-basis1_sorted = basis1[:, alpha_sorted_id]
-visualize_grid(basis1_sorted[:10])
+alpha_sorted, alpha_sorted_id = torch.sort(one_ahat, descending=True)
+basis1_sorted = basis1_vis[:, alpha_sorted_id].cpu()
+basis1_sorted_vis = normalize_patches_rgb(rearrange(basis1_sorted[:,:10], 
+                                          "(c p_h p_w) n_p -> n_p c p_h p_w", c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE))
+visualize_grid(basis1_sorted_vis)
+
+#%% show phi corresponding to highest P
+# P_id = beta_sorted_id[0]
+P_id = 2
+one_P = P_star[P_id]
+sorted_P_id = torch.argsort(one_P, descending=True)
+basis1_sorted = basis1_vis[:, sorted_P_id].cpu()
+basis1_sorted_vis = normalize_patches_rgb(rearrange(basis1_sorted[:,:16], 
+                                          "(c p_h p_w) n_p -> n_p c p_h p_w", c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE))
+visualize_grid(P_sorted[P_id].unsqueeze(0))
+visualize_grid(basis1_sorted_vis)
 
 
 #%%
