@@ -2,6 +2,7 @@
 # %%
 from sklearn.metrics import accuracy_score
 from sklearn.linear_model import LogisticRegression, Perceptron, SGDClassifier
+from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import KMeans
 from einops import rearrange
 import torchvision.transforms as transforms
@@ -584,7 +585,7 @@ visualize_grid(P_proj_vis)
 
 
 #%%
-batch_size = 500
+batch_size = 1000
 output_w = 3
 basis1 = basis1.cpu()
 patches =unfold_image(imgs_test[:batch_size],
@@ -621,8 +622,7 @@ temp = temp.cpu()
 patches = unfold_image(imgs_test[:batch_size].cpu(),
                       PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
 one_beta = temp[img_id].reshape(num_dim, RG**2)[:,patch_id]
-one_patch = patches[img_id, :, :, :, patch_id]
-
+yGj
 # show whole image
 visualize_grid(imgs_test[img_id].unsqueeze(0))
 # show one patch
@@ -655,15 +655,43 @@ visualize_grid(P_proj_vis[P_id].unsqueeze(0), title=f"P{P_id}")
 visualize_grid(basis1_sorted_vis, title=f"{basis1_sorted_vis.shape[0]} closest phis")
 
 #%% for a given row P_i, look for images with highest beta_i activation 
-P_id = 1
+P_id = 5
 beta_mean = beta_batch.mean(axis=(-1,-2))
 beta_sorted, beta_sorted_id = torch.sort(beta_mean[:,P_id], descending=True)
 imgs_sorted = imgs_test[beta_sorted_id] 
 visualize_patches(imgs_sorted[:100], title=f"images with highest beta activation for P{P_id}")
 
+#%% look at neighbors of patches (fig 4 iclr paper)
+n_neighbors = 100
+X = rearrange(temp, "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size, n_h=RG, n_w=RG)
+nn = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine').fit(X)
+#%%
+img_id = 4  # 0 to 999
+patch_id = 400  # 0 to 728
+one_patch = patches[img_id, :, :, :, patch_id]
+neigh_dist, neigh_id = nn.kneighbors(temp.reshape(batch_size, num_dim, RG**2)[img_id, :, patch_id].unsqueeze(0))
+patches_reshaped = rearrange(patches, "bs c p_h p_w n_p -> (bs n_p) c p_h p_w", bs=batch_size, c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE)
+sorted_patches = patches_reshaped[neigh_id]
+visualize_patches(normalize_patches_rgb(sorted_patches[:100]), title=f"{100} neighbors of img{img_id} patch{patch_id}")
+plt.show()
 
+#%% don't include image of the original patch. but still includes multiple patches from same image for different images
+# img_id = 0  # 0 to 999
+# patch_id = 15  # 0 to 728
+# one_patch = patches[img_id, :, :, :, patch_id]
+# # only look at patches not in this image:
+# X_minus_img = rearrange(temp[np.arange(temp.shape[0])!=img_id], "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size-1, n_h=RG, n_w=RG)
+# nn = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine').fit(X_minus_img)
+# neigh_dist, neigh_id = nn.kneighbors(temp.reshape(batch_size, num_dim, RG**2)[img_id, :, patch_id].unsqueeze(0))
+# # only consider patches not in this image:
+# patches_reshaped = rearrange(patches[np.arange(patches.shape[0])!=img_id], "bs c p_h p_w n_p -> (bs n_p) c p_h p_w", bs=batch_size-1, c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE)
+# sorted_patches = patches_reshaped[neigh_id]
+# # sorted_patches = sorted_patches.div_(sorted_patches.norm(dim=(-1, -2), keepdim=True) + 1e-7)
+# visualize_patches(normalize_patches_rgb(sorted_patches[:100]), title=f"{100} neighbors of img{img_id} patch{patch_id}")
+# plt.show()
 
 #%%
 # grab some patches and find the ones with highest activation for each slow component
+# cluster in ahat vs look at P?
 # or reconstruct by solving for alpha_rec
 # or look at figure 4 in minimalistic paper
