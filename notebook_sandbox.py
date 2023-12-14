@@ -8,6 +8,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
 import torchvision.datasets as datasets
 import torchvision
+from torchvision.utils import make_grid
 import torch.nn.functional as F
 import torch
 import numpy.linalg as la
@@ -196,6 +197,7 @@ def normalize_patches_rgb(img):
     img = img / torch.amax(img, axis=(0, 2, 3), keepdim=True)
     return img
 
+
 def gaussian2d(dim, mean, std):
     """Returns a 2d gaussian of size dim x dim with mean at mean
     dim is scalar, mean is tuple
@@ -205,6 +207,41 @@ def gaussian2d(dim, mean, std):
     x0 = mean[0]
     y0 = mean[1]
     return np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * std**2))
+
+
+def visualize_patches(patches, title="", figsize=None, colorbar=False, nrow=None):
+    """
+    Given patches of images in the dataset, create a grid and display it.
+
+    Parameters
+    ----------
+    patches : Tensor of (batch_size, c, h, w).
+
+    title : String; title of figure. Optional.
+    """
+    size = patches.size(2)
+    batch_size = patches.size(0)
+    c = patches.size(1)
+    img_grid = []
+    for i in range(batch_size):
+        img = torch.reshape(patches[i], (c, size, size))
+        img_grid.append(img)
+
+    if not nrow:
+        nrow = int(np.sqrt(batch_size))
+    out = make_grid(img_grid, padding=1, nrow=nrow, pad_value=torch.min(patches))
+    plt.tick_params(axis='both', which='both', bottom=False, left=False,
+                    labelbottom=False, labelleft=False)
+    plt.xticks([])
+    plt.yticks([])
+    plt.title(title)
+    fig = plt.gcf()
+    if figsize:
+        fig.set_size_inches(figsize)
+    # plt.imshow(out, cmap="gray", vmin=-1, vmax=1)  # for gabors
+    plt.imshow(out.permute(1, 2, 0))  # for images
+    if colorbar:
+        plt.colorbar()
 #%%
 #@title
 # Load data from CIFAR10
@@ -577,41 +614,45 @@ ahat = rearrange(ahat, "n_b (bs n_p) -> bs n_p n_b", bs=batch_size, n_b=BASIS1_N
 
 #%% for test img 1, look at beta and look at corresponding P in pixel space
 # one beta is 512 x 3 x 3, so average to 512 vector where each element corresponds to a row of P
-img_id = 0
-beta_id = 15
+img_id = 3
+# beta_id = 0
+patch_id = 500
 temp = temp.cpu()
 patches = unfold_image(imgs_test[:batch_size].cpu(),
                       PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
-one_beta = temp[img_id].reshape(num_dim, RG**2)[:,beta_id]
-one_patch = patches[img_id, :, :, :, beta_id]
+one_beta = temp[img_id].reshape(num_dim, RG**2)[:,patch_id]
+one_patch = patches[img_id, :, :, :, patch_id]
 
 # show whole image
-# visualize_grid(imgs_test[0].unsqueeze(0))
+visualize_grid(imgs_test[3].unsqueeze(0))
 # show one patch
 visualize_grid(one_patch.unsqueeze(0)); plt.show()
 # show rows of Ps with highest activations for this image (abs value)
 beta_sorted, beta_sorted_id = torch.sort(one_beta.abs(), descending=True)
 P_sorted = P_proj_vis[beta_sorted_id] 
-visualize_grid(P_sorted[:16])  # look at top 10
+# visualize_grid(P_sorted[:25])  # look at top 10
+visualize_patches(P_sorted[:25], title="P corresponding to top values of beta")  # look at top 10
 
 # show highest activation phi for this image
-one_ahat = ahat[img_id, beta_id]
-alpha_sorted, alpha_sorted_id = torch.sort(one_ahat, descending=True)
-basis1_sorted = basis1_vis[:, alpha_sorted_id].cpu()
-basis1_sorted_vis = normalize_patches_rgb(rearrange(basis1_sorted[:,:10], 
+torch.manual_seed(0)
+one_ahat = ahat[img_id, patch_id]
+alpha_ones_id = torch.where(one_ahat == 1)[0]
+alpha_ones_id = alpha_ones_id[torch.randperm(len(alpha_ones_id))]  # take random ones
+basis1_sorted = basis1_vis[:, alpha_ones_id].cpu()
+basis1_sorted_vis = normalize_patches_rgb(rearrange(basis1_sorted[:,:25], 
                                           "(c p_h p_w) n_p -> n_p c p_h p_w", c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE))
-visualize_grid(basis1_sorted_vis)
+visualize_patches(basis1_sorted_vis, title="phi corresponding to top values of alpha")
 
-#%% show phi corresponding to highest P
-# P_id = beta_sorted_id[0]
-P_id = 2
+#%% show phis with highest weights corresponding to a given P
+P_id = beta_sorted_id[9]
+# P_id = 6
 one_P = P_star[P_id]
 sorted_P_id = torch.argsort(one_P, descending=True)
 basis1_sorted = basis1_vis[:, sorted_P_id].cpu()
-basis1_sorted_vis = normalize_patches_rgb(rearrange(basis1_sorted[:,:16], 
+basis1_sorted_vis = normalize_patches_rgb(rearrange(basis1_sorted[:,:100], 
                                           "(c p_h p_w) n_p -> n_p c p_h p_w", c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE))
-visualize_grid(P_sorted[P_id].unsqueeze(0))
-visualize_grid(basis1_sorted_vis)
+visualize_grid(P_proj_vis[P_id].unsqueeze(0), title=f"P{P_id}")
+visualize_grid(basis1_sorted_vis, title=f"{basis1_sorted_vis.shape[0]} closest phis")
 
 
 #%%
