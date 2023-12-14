@@ -584,9 +584,10 @@ visualize_grid(P_proj_vis)
 
 
 #%%
-batch_size = 10
+batch_size = 500
 output_w = 3
-patches =unfold_image(imgs_test[:batch_size].to(device),
+basis1 = basis1.cpu()
+patches =unfold_image(imgs_test[:batch_size],
                       PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
 #     demean/center each image patch
 patches = patches.sub(patches.mean((2,3),keepdim =True))
@@ -594,7 +595,7 @@ patches = patches.sub(patches.mean((2,3),keepdim =True))
 x = rearrange(patches,"bsz c p_h p_w b  ->bsz (c p_h p_w) b ")
 x_flat = rearrange(x,"bsz p_d hw -> p_d (bsz hw)")
 #     apply whiten transform to each image patch
-x_flat = torch.mm(whiteMat, x_flat)
+x_flat = torch.mm(whiteMat.cpu(), x_flat)
 #     normalize each image patch
 x_flat = x_flat.div(x_flat.norm(dim = 0, keepdim=True)+1e-9)
 #     extract sparse feature vector ahat from each image patch, sparsify_general1 is f_gq in the paper
@@ -603,7 +604,7 @@ ahat = sparsify_general1(x_flat, basis1, t=threshold)
 # ahat *= psi
 # ahat = ahat.reshape(BASIS1_NUM, batch_size, RG**2).sum(dim=-1)
 #     project the sparse code into the spectral embeddings
-temp = torch.mm(P_star, ahat)
+temp = torch.mm(P_star.cpu(), ahat)
 temp = temp.div(temp.norm(dim=0, keepdim=True)+ 1e-9)
 temp = rearrange(temp,"c (b2 h w) -> b2 c h w",b2=batch_size,h=RG)
 #     apply spatial pooling
@@ -614,9 +615,8 @@ ahat = rearrange(ahat, "n_b (bs n_p) -> bs n_p n_b", bs=batch_size, n_b=BASIS1_N
 
 #%% for test img 1, look at beta and look at corresponding P in pixel space
 # one beta is 512 x 3 x 3, so average to 512 vector where each element corresponds to a row of P
-img_id = 3
-# beta_id = 0
-patch_id = 500
+img_id = 0
+patch_id = 50
 temp = temp.cpu()
 patches = unfold_image(imgs_test[:batch_size].cpu(),
                       PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
@@ -624,7 +624,7 @@ one_beta = temp[img_id].reshape(num_dim, RG**2)[:,patch_id]
 one_patch = patches[img_id, :, :, :, patch_id]
 
 # show whole image
-visualize_grid(imgs_test[3].unsqueeze(0))
+visualize_grid(imgs_test[img_id].unsqueeze(0))
 # show one patch
 visualize_grid(one_patch.unsqueeze(0)); plt.show()
 # show rows of Ps with highest activations for this image (abs value)
@@ -644,8 +644,8 @@ basis1_sorted_vis = normalize_patches_rgb(rearrange(basis1_sorted[:,:25],
 visualize_patches(basis1_sorted_vis, title="phi corresponding to top values of alpha")
 
 #%% show phis with highest weights corresponding to a given P
-P_id = beta_sorted_id[9]
-# P_id = 6
+# P_id = beta_sorted_id[9]
+P_id = 0
 one_P = P_star[P_id]
 sorted_P_id = torch.argsort(one_P, descending=True)
 basis1_sorted = basis1_vis[:, sorted_P_id].cpu()
@@ -653,6 +653,14 @@ basis1_sorted_vis = normalize_patches_rgb(rearrange(basis1_sorted[:,:100],
                                           "(c p_h p_w) n_p -> n_p c p_h p_w", c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE))
 visualize_grid(P_proj_vis[P_id].unsqueeze(0), title=f"P{P_id}")
 visualize_grid(basis1_sorted_vis, title=f"{basis1_sorted_vis.shape[0]} closest phis")
+
+#%% for a given row P_i, look for images with highest beta_i activation 
+P_id = 1
+beta_mean = beta_batch.mean(axis=(-1,-2))
+beta_sorted, beta_sorted_id = torch.sort(beta_mean[:,P_id], descending=True)
+imgs_sorted = imgs_test[beta_sorted_id] 
+visualize_patches(imgs_sorted[:100], title=f"images with highest beta activation for P{P_id}")
+
 
 
 #%%
