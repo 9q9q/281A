@@ -26,17 +26,33 @@ device = 'cuda:'+str(3)
 
 # %%  Define functions
 
-def softknn(train_features, train_targets, test_features, test_targets, k=30, T=0.03, max_distance_matrix_size=int(5e6), distance_fx: str = "cosine", epsilon: float = 0.00001) -> Tuple[float]:
+def softknn(
+    train_features, train_targets, test_features, test_targets, k=30, T=0.03, 
+    max_distance_matrix_size=int(5e6), distance_fx: str = "cosine", 
+    epsilon: float = 0.00001) -> Tuple[float]:
     """Computes weighted k-NN accuracy @1 and @5. If cosine distance is selected,
     the weight is computed using the exponential of the temperature scaled cosine
     distance of the samples. If euclidean distance is selected, the weight corresponds
     to the inverse of the euclidean distance.
+    k (int, optional): number of neighbors. Defaults to 30.
+    T (float, optional): temperature for the exponential. Only used with cosine
+        distance. Defaults to 0.03.
+    max_distance_matrix_size (int, optional): maximum number of elements in the
+        distance matrix. Defaults to 5e6.
+    distance_fx (str, optional): Distance function. Defaults to "cosine".
+    epsilon (float, optional): Small value for numerical stability. Only used with
+        euclidean distance. Defaults to 0.00001.
     
     Adopted from https://github.com/vturrisi/solo-learn
+    https://github.com/vturrisi/solo-learn/blob/main/solo/utils/knn.py#L27
     
     Returns:
         Tuple[float]: k-NN accuracy @1 and @5.
     """
+    train_features = torch.Tensor(train_features)
+    test_features = torch.Tensor(test_features)
+    train_targets = torch.Tensor(train_targets)
+    test_targets = torch.Tensor(test_targets)
 
     if distance_fx == "cosine":
         train_features = F.normalize(train_features)
@@ -386,7 +402,7 @@ Q = torch.mm(V_invhalf, torch.mm(ADDA, V_invhalf))
 wQ, vQ = torch.linalg.eigh(Q, UPLO='U')
 
 #%%
-num_dim = 256
+num_dim = 512
 U = vQ[:,8:8+num_dim]
 P_star = torch.mm(V_invhalf, U).t().to(device)
 
@@ -471,11 +487,11 @@ temp_train_1 = temp_train_1.div(temp_train_1.norm(dim=(-1), keepdim=True) + 1e-9
 temp_test_1 = temp_test_1.div(temp_test_1.norm(dim=(-1), keepdim=True) + 1e-9)
 
 #%%
-temp_train_1 = torch.load("beta_train_8192.pt")
-temp_test_1 = torch.load("beta_test_8192.pt")
+# temp_train_1 = torch.load("beta_train_8192.pt")
+# temp_test_1 = torch.load("beta_test_8192.pt")
 
-# torch.save(temp_train_1, "beta_train_512.pt")
-# torch.save(temp_test_1, "beta_test_512.pt")
+temp_train_1 = torch.load("beta_train_512.pt")
+temp_test_1 = torch.load("beta_test_512.pt")
 
 # torch.save(temp_train_1, "beta_train_4096.pt")
 # torch.save(temp_test_1, "beta_test_4096.pt")
@@ -490,21 +506,29 @@ y_test = labels_test
 
 #%%
 # if resulting vectors are HD (have been bound with pos), then can use other methods to classify, e.g. clustering? look at lit
-
-# clf = Perceptron(random_state=0)
 clf = LogisticRegression(random_state=0)
-# clf = SGDClassifier(random_state=0) # slow
 clf.fit(X,y) 
 y_test_hat = clf.predict(X_test)
 acc_score = accuracy_score(y_test,y_test_hat)
 print(acc_score)
 
+#%% run knn
+top1, top5 = softknn(X, y, X_test, y_test, k=30, T=0.03)
+print(f"Top-1 acc: {top1:.2f}, Top-5 acc: {top5:.2f}")
+
 #%% run kmeans
-kmeans = KMeans(n_clusters=10, random_state=0).fit(X)
+n_clusters = 10
+kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(X)
 y_test_hat = kmeans.predict(X_test)
 #%% visualize clusters
 plt.close()
-for i in range(10):
+for i in range(n_clusters):
     labels_idx = np.where(y_test_hat == i)[0]
     visualize_grid(imgs_test[labels_idx,:,:,:])
-# print(y_test[labels0])
+
+#%% visualize slow components
+
+# is there a way to project into pixel space?
+# or grab some patches and find the ones with highest activation for each slow component
+# or reconstruct by solving for alpha_rec
+# or look at figure 4 in minimalistic paper
