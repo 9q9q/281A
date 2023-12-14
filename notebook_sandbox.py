@@ -542,10 +542,64 @@ unwhitened = colorMat @ P_proj
 P_proj_vis = rearrange(unwhitened,"(c p_h p_w) n_p -> n_p c p_h p_w", 
                        p_h=PATCH_SIZE, p_w = PATCH_SIZE, n_p = BASIS1_NUM)
 P_proj_vis = P_proj_vis.div_(P_proj_vis.norm(2,0) + 1e-7) * 255
-P_proj_vis = normalize_patches_rgb(P_proj_vis)
-visualize_grid(P_proj_vis[:num_dim])
+P_proj_vis = normalize_patches_rgb(P_proj_vis)[:num_dim]
+visualize_grid(P_proj_vis)
 
-#%% for img 1
+
+#%%
+batch_size = 10
+output_w = 3
+patches =unfold_image(imgs_test[:batch_size].to(device),
+                      PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
+#     demean/center each image patch
+patches = patches.sub(patches.mean((2,3),keepdim =True))
+#     aggregate all patches into together (squeeze into one dimension).
+x = rearrange(patches,"bsz c p_h p_w b  ->bsz (c p_h p_w) b ")
+x_flat = rearrange(x,"bsz p_d hw -> p_d (bsz hw)")
+#     apply whiten transform to each image patch
+x_flat = torch.mm(whiteMat, x_flat)
+#     normalize each image patch
+x_flat = x_flat.div(x_flat.norm(dim = 0, keepdim=True)+1e-9)
+#     extract sparse feature vector ahat from each image patch, sparsify_general1 is f_gq in the paper
+ahat = sparsify_general1(x_flat, basis1, t=threshold)
+# ahat = ahat @ psi
+# ahat *= psi
+# ahat = ahat.reshape(BASIS1_NUM, batch_size, RG**2).sum(dim=-1)
+#     project the sparse code into the spectral embeddings
+temp = torch.mm(P_star, ahat)
+temp = temp.div(temp.norm(dim=0, keepdim=True)+ 1e-9)
+temp = rearrange(temp,"c (b2 h w) -> b2 c h w",b2=batch_size,h=RG)
+#     apply spatial pooling
+# TODO pool by summing in HD way?
+beta_batch = F.adaptive_avg_pool2d(F.avg_pool2d(temp, kernel_size = 5, stride = 3), output_w)
+ahat = rearrange(ahat, "n_b (bs n_p) -> bs n_p n_b", bs=batch_size, n_b=BASIS1_NUM, 
+                 n_p=RG**2).cpu()
+
+#%% for test img 1, look at beta and look at corresponding P in pixel space
+# one beta is 512 x 3 x 3, so average to 512 vector where each element corresponds to a row of P
+img_id = 0
+beta_id = 15
+temp = temp.cpu()
+patches = unfold_image(imgs_test[:batch_size].cpu(),
+                      PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
+one_beta = temp[img_id].reshape(num_dim, RG**2)[:,beta_id]
+one_patch = patches[img_id, :, :, :, beta_id]
+
+# show whole image
+# visualize_grid(imgs_test[0].unsqueeze(0))
+# show one patch
+visualize_grid(one_patch.unsqueeze(0)); plt.show()
+# show rows of Ps with highest activations (abs value)
+beta_sorted, beta_sorted_id = torch.sort(one_beta.abs(), descending=True)
+P_sorted = P_proj_vis[beta_sorted_id] 
+visualize_grid(P_sorted[:10])  # look at top 10
+
+# show highest activation phi
+one_ahat = ahat[img_id, beta_id]
+alpha_sorted, alpha_sorted_id = torch.sort(one_ahat.abs(), descending=True)
+basis1_sorted = basis1[:, alpha_sorted_id]
+visualize_grid(basis1_sorted[:10])
+
 
 #%%
 # grab some patches and find the ones with highest activation for each slow component
