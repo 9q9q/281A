@@ -296,12 +296,15 @@ basis1 = torch.randn(BASIS1_SIZE).to(device)
 basis1_vis = torch.randn(BASIS1_SIZE).to(device)
 basis1_vis = torch.randn(BASIS1_SIZE)
 #To initialize the dictionary with image patches, we randomly select image patches to be dictionary elements
+dict_means = torch.zeros((BASIS1_NUM, 3)).to(device)
 for i in tqdm(range(BASIS1_NUM)):
     idx = torch.randint(0,imgs_train.size(0),(1,))
     pos = torch.randint(0,32 - PATCH_SIZE+1,(2,))
     patch = imgs_train[idx[0]:idx[0]+1,:,pos[0]:pos[0]+PATCH_SIZE,pos[1]:pos[1] + PATCH_SIZE]
     patches = patch.to(device) 
-    patch_rm = patches.sub(patches.mean((2,3),keepdim =True))
+    mean = patches.mean((2,3),keepdim =True)
+    patch_rm = patches.sub(mean)
+    dict_means[i] = mean.reshape(3)
     basis1[:,i] = torch.mm(whiteMat, patch_rm[:,...].reshape(1,-1).t())[:,0]
     basis1_vis[:,i] = patch[:,...].reshape(1,-1).t()[:,0].cpu()
     
@@ -528,7 +531,23 @@ for i in range(n_clusters):
 
 #%% visualize slow components
 
-# is there a way to project into pixel space?
-# or grab some patches and find the ones with highest activation for each slow component
+# project into pixel space
+P_star_inv = torch.load("P_star_inv.pt", map_location=torch.device(device))
+P_proj = basis1 @ P_star_inv
+
+# unwhiten
+colorMat = colorMat.cpu(); P_proj = P_proj.cpu()
+unwhitened = colorMat @ P_proj
+
+P_proj_vis = rearrange(unwhitened,"(c p_h p_w) n_p -> n_p c p_h p_w", 
+                       p_h=PATCH_SIZE, p_w = PATCH_SIZE, n_p = BASIS1_NUM)
+P_proj_vis = P_proj_vis.div_(P_proj_vis.norm(2,0) + 1e-7) * 255
+P_proj_vis = normalize_patches_rgb(P_proj_vis)
+visualize_grid(P_proj_vis[:num_dim])
+
+#%% for img 1
+
+#%%
+# grab some patches and find the ones with highest activation for each slow component
 # or reconstruct by solving for alpha_rec
 # or look at figure 4 in minimalistic paper
