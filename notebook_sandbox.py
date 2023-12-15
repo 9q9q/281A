@@ -146,7 +146,7 @@ def visualize_grid(img, figsize=(6, 6), colorbar=False, title=""):
 # essential function to implement SMT
 
 
-def sparsify_general1(x, basis, t=0.3):
+def sparsify_general1(x, basis, psi=None, t=0.3):
     """
     This function gives the general sparse feature for image patch x. We calculte the cosine similarity between
     each image patch x and each dictionary element in basis. If the similarity pass threshold t, then the activation
@@ -162,7 +162,11 @@ def sparsify_general1(x, basis, t=0.3):
         bag_of_patche: List of image patches with size [bsz, c, ps, ps, num_patches]. Each patch has the shape [c, ps, ps]
     """
 
-    a = (torch.mm(basis.t(), x) > t).float()
+    if psi == None:
+        a = (torch.mm(basis.t(), x) > t).float()
+    else:
+        # a = (basis.T @ x @ psi > t).float()
+        a = (basis.T @ (x + psi) > t).float()
     return a
 
 
@@ -393,7 +397,14 @@ temp2 = torch.zeros(BASIS1_NUM, batch_size * RG**2, device=device)
 # psi = psi.expand((batch_size, batch_size, RG**2, RG**2)).permute(0, 2, 1, 3).reshape(
 #     batch_size*RG**2, batch_size*RG**2)
 
-# sinusoid like in attention paper
+# sinusoid like in attention paper, same dim as data (num_patches x patch_size)
+psi = torch.zeros((1, RG**2, PATCH_SIZE**2)).to(device)
+X = torch.arange(RG**2, dtype=torch.float32).reshape(
+    -1, 1) / torch.pow(10000, torch.arange(
+    0, PATCH_SIZE**2, 2, dtype=torch.float32) / PATCH_SIZE**2)
+psi[:, :, 0::2] = torch.sin(X)
+psi[:, :, 1::2] = torch.cos(X)
+psi = rearrange(psi.expand((batch_size, 3, RG**2, PATCH_SIZE**2)), "bs c n_p n_pix -> (n_pix c) (bs n_p)")
 
 
 #%% this takes 4 mins on gpu
@@ -411,7 +422,7 @@ for idx in tqdm(range(0,imgs_train.size(0), batch_size)):
 #     normalize each image patch
     x_flat = x_flat.div(x_flat.norm(dim = 0, keepdim=True)+1e-9)
 #     extract sparse feature vector ahat from each image patch, sparsify_general1 is f_gq in the paper
-    ahat = sparsify_general1(x_flat, basis1, t=threshold)
+    ahat = sparsify_general1(x_flat, basis1, psi, t=threshold)
     # position encoding (bind)
     # ahat *= psi
     # "attention matrix"
@@ -461,12 +472,12 @@ P_star = torch.mm(V_invhalf, U).t().to(device)
 output_w = 3
 temp_train_1 = torch.zeros([imgs_train.size(0),num_dim,output_w,output_w])
 temp_test_1 = torch.zeros([imgs_test.size(0),num_dim,output_w,output_w])
+temp_train_1.fill_(0)
+temp_test_1.fill_(0)
 
 # for HD style, would "pool" by bundling all vects into one?
 # temp_train_1 = torch.zeros([imgs_train.size(0),num_dim])
 # temp_test_1 = torch.zeros([imgs_test.size(0),num_dim])
-temp_train_1.fill_(0)
-temp_test_1.fill_(0)
 
 # for epoch in range(4):
 for idx in tqdm(range(0,imgs_train.size(0), batch_size)):
@@ -482,7 +493,7 @@ for idx in tqdm(range(0,imgs_train.size(0), batch_size)):
 #     normalize each image patch
     x_flat = x_flat.div(x_flat.norm(dim = 0, keepdim=True)+1e-9)
 #     extract sparse feature vector ahat from each image patch, sparsify_general1 is f_gq in the paper
-    ahat = sparsify_general1(x_flat, basis1, t=threshold)
+    ahat = sparsify_general1(x_flat, basis1, psi, t=threshold)
     # ahat *= psi
     # ahat = ahat.reshape(BASIS1_NUM, batch_size, RG**2).sum(dim=-1)
 #     project the sparse code into the spectral embeddings
@@ -495,6 +506,7 @@ for idx in tqdm(range(0,imgs_train.size(0), batch_size)):
     # temp_train_1[idx:idx+batch_size,...] = temp.mean(dim=(-1,-2))
 
 
+temp_test_unpooled = torch.zeros([imgs_test.size(0),num_dim,RG,RG])
 for idx in tqdm(range(0,imgs_test.size(0), batch_size)):
 #     unfold each image into a bag of patches
     patches =unfold_image(imgs_test[idx:idx+batch_size].to(device),PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
@@ -508,7 +520,7 @@ for idx in tqdm(range(0,imgs_test.size(0), batch_size)):
 #     normalize each image patch
     x_flat = x_flat.div(x_flat.norm(dim = 0, keepdim=True)+1e-9)
 #     extract sparse feature vector ahat from each image patch, sparsify_general1 is f_gq in the paper
-    ahat = sparsify_general1(x_flat, basis1, t=threshold)
+    ahat = sparsify_general1(x_flat, basis1, psi, t=threshold)
     # ahat = ahat @ psi
     # ahat *= psi
     # ahat = ahat.reshape(BASIS1_NUM, batch_size, RG**2).sum(dim=-1)
@@ -518,14 +530,16 @@ for idx in tqdm(range(0,imgs_test.size(0), batch_size)):
     temp = rearrange(temp,"c (b2 h w) -> b2 c h w",b2=batch_size,h=RG)
 #     apply spatial pooling
 # TODO pool by summing in HD way?
-    temp_test_1[idx:idx+batch_size,...] = F.adaptive_avg_pool2d(F.avg_pool2d(temp, kernel_size = 5, stride = 3), output_w)
+    # temp_test_1[idx:idx+batch_size,...] = F.adaptive_avg_pool2d(F.avg_pool2d(temp, kernel_size = 5, stride = 3), output_w)
+    temp_test_unpooled[idx:idx+batch_size,...] = temp
     # temp_test_1[idx:idx+batch_size,...] = temp.mean(dim=(-1,-2))
 
 # worse if not normalized
-# temp_train_1 = temp_train_1.div(temp_train_1.norm(dim=(-3), keepdim=True) + 1e-9)
-# temp_test_1 = temp_test_1.div(temp_test_1.norm(dim=(-3), keepdim=True) + 1e-9)
-temp_train_1 = temp_train_1.div(temp_train_1.norm(dim=(-1), keepdim=True) + 1e-9)
-temp_test_1 = temp_test_1.div(temp_test_1.norm(dim=(-1), keepdim=True) + 1e-9)
+temp_test_unpooled = temp_test_unpooled.div(temp_test_unpooled.norm(dim=(-3), keepdim=True) + 1e-9)
+temp_train_1 = temp_train_1.div(temp_train_1.norm(dim=(-3), keepdim=True) + 1e-9)
+temp_test_1 = temp_test_1.div(temp_test_1.norm(dim=(-3), keepdim=True) + 1e-9)
+# temp_train_1 = temp_train_1.div(temp_train_1.norm(dim=(-1), keepdim=True) + 1e-9)
+# temp_test_1 = temp_test_1.div(temp_test_1.norm(dim=(-1), keepdim=True) + 1e-9)
 
 #%%
 # temp_train_1 = torch.load("beta_train_8192.pt")
@@ -600,7 +614,7 @@ x_flat = torch.mm(whiteMat.cpu(), x_flat)
 #     normalize each image patch
 x_flat = x_flat.div(x_flat.norm(dim = 0, keepdim=True)+1e-9)
 #     extract sparse feature vector ahat from each image patch, sparsify_general1 is f_gq in the paper
-ahat = sparsify_general1(x_flat, basis1, t=threshold)
+ahat = sparsify_general1(x_flat, basis1, psi.cpu(), t=threshold)
 # ahat = ahat @ psi
 # ahat *= psi
 # ahat = ahat.reshape(BASIS1_NUM, batch_size, RG**2).sum(dim=-1)
@@ -622,7 +636,6 @@ temp = temp.cpu()
 patches = unfold_image(imgs_test[:batch_size].cpu(),
                       PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
 one_beta = temp[img_id].reshape(num_dim, RG**2)[:,patch_id]
-yGj
 # show whole image
 visualize_grid(imgs_test[img_id].unsqueeze(0))
 # show one patch
@@ -645,7 +658,7 @@ visualize_patches(basis1_sorted_vis, title="phi corresponding to top values of a
 
 #%% show phis with highest weights corresponding to a given P
 # P_id = beta_sorted_id[9]
-P_id = 2
+P_id = 0
 one_P = P_star[P_id]
 sorted_P_id = torch.argsort(one_P, descending=True)
 basis1_sorted = basis1_vis[:, sorted_P_id].cpu()
@@ -655,16 +668,21 @@ visualize_grid(P_proj_vis[P_id].unsqueeze(0), title=f"P{P_id}")
 visualize_grid(basis1_sorted_vis, title=f"{basis1_sorted_vis.shape[0]} closest phis to P{P_id}")
 
 #%% for a given row P_i, look for images with highest beta_i activation 
-P_id = 5
-beta_mean = beta_batch.mean(axis=(-1,-2))
+P_id = 0
+# beta_mean = beta_batch.mean(axis=(-1,-2))
+beta_mean = temp_test_1.mean(axis=(-1,-2))
 beta_sorted, beta_sorted_id = torch.sort(beta_mean[:,P_id], descending=True)
 imgs_sorted = imgs_test[beta_sorted_id] 
 visualize_patches(imgs_sorted[:100], title=f"images with highest beta activation for P{P_id}")
 
 #%% for a given row P_i, look for patches with highest beta_i activation 
 P_id = 3
+batch_size=1000
+patches = unfold_image(imgs_test[:batch_size].cpu(),
+                      PATCH_SIZE=PATCH_SIZE,hop_length=hop_length)
 visualize_grid(P_proj_vis[P_id].unsqueeze(0), title=f"P{P_id}")
-temp_reshaped = rearrange(temp, "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size, n_h=RG, n_w=RG)
+# temp_reshaped = rearrange(temp, "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size, n_h=RG, n_w=RG)
+temp_reshaped = rearrange(temp_test_unpooled, "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size, n_h=RG, n_w=RG)
 patches_reshaped = rearrange(patches, "bs c p_h p_w n_p -> (bs n_p) c p_h p_w", bs=batch_size, c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE)
 temp_sorted, temp_sorted_id = torch.sort(temp_reshaped[:,P_id], descending=True)
 patches_sorted = patches_reshaped[temp_sorted_id] 
@@ -673,13 +691,15 @@ visualize_patches(normalize_patches_rgb(patches_sorted[:128]),
 
 #%% look at neighbors of patches (fig 4 iclr paper)
 n_neighbors = 128
-X = rearrange(temp, "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size, n_h=RG, n_w=RG)
+# X = rearrange(temp, "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size, n_h=RG, n_w=RG)
+X = rearrange(temp_test_unpooled, "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size, n_h=RG, n_w=RG)
 nn = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine').fit(X)
 #%%
-img_id = 7  # 0 to 999
-patch_id = 400 # 0 to 728
+img_id = 1  # 0 to 999
+patch_id = 400  # 0 to 728
 one_patch = patches[img_id, :, :, :, patch_id]
-neigh_dist, neigh_id = nn.kneighbors(temp.reshape(batch_size, num_dim, RG**2)[img_id, :, patch_id].unsqueeze(0))
+# neigh_dist, neigh_id = nn.kneighbors(temp.reshape(batch_size, num_dim, RG**2)[img_id, :, patch_id].unsqueeze(0))
+neigh_dist, neigh_id = nn.kneighbors(temp_test_unpooled.reshape(batch_size, num_dim, RG**2)[img_id, :, patch_id].unsqueeze(0))
 patches_reshaped = rearrange(patches, "bs c p_h p_w n_p -> (bs n_p) c p_h p_w", bs=batch_size, c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE)
 sorted_patches = patches_reshaped[neigh_id]
 visualize_patches(normalize_patches_rgb(sorted_patches[:128]), title=f"{128} neighbors of img{img_id} patch{patch_id}", ncol=16)
