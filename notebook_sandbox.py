@@ -210,7 +210,7 @@ def gaussian2d(dim, mean, std):
     return np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * std**2))
 
 
-def visualize_patches(patches, title="", figsize=None, colorbar=False, nrow=None):
+def visualize_patches(patches, title="", figsize=None, colorbar=False, ncol=None):
     """
     Given patches of images in the dataset, create a grid and display it.
 
@@ -228,9 +228,9 @@ def visualize_patches(patches, title="", figsize=None, colorbar=False, nrow=None
         img = torch.reshape(patches[i], (c, size, size))
         img_grid.append(img)
 
-    if not nrow:
-        nrow = int(np.sqrt(batch_size))
-    out = make_grid(img_grid, padding=1, nrow=nrow, pad_value=torch.min(patches))
+    if not ncol:
+        ncol = int(np.sqrt(batch_size))
+    out = make_grid(img_grid, padding=1, nrow=ncol, pad_value=torch.min(patches))
     plt.tick_params(axis='both', which='both', bottom=False, left=False,
                     labelbottom=False, labelleft=False)
     plt.xticks([])
@@ -645,14 +645,14 @@ visualize_patches(basis1_sorted_vis, title="phi corresponding to top values of a
 
 #%% show phis with highest weights corresponding to a given P
 # P_id = beta_sorted_id[9]
-P_id = 0
+P_id = 2
 one_P = P_star[P_id]
 sorted_P_id = torch.argsort(one_P, descending=True)
 basis1_sorted = basis1_vis[:, sorted_P_id].cpu()
 basis1_sorted_vis = normalize_patches_rgb(rearrange(basis1_sorted[:,:100], 
                                           "(c p_h p_w) n_p -> n_p c p_h p_w", c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE))
 visualize_grid(P_proj_vis[P_id].unsqueeze(0), title=f"P{P_id}")
-visualize_grid(basis1_sorted_vis, title=f"{basis1_sorted_vis.shape[0]} closest phis")
+visualize_grid(basis1_sorted_vis, title=f"{basis1_sorted_vis.shape[0]} closest phis to P{P_id}")
 
 #%% for a given row P_i, look for images with highest beta_i activation 
 P_id = 5
@@ -661,18 +661,28 @@ beta_sorted, beta_sorted_id = torch.sort(beta_mean[:,P_id], descending=True)
 imgs_sorted = imgs_test[beta_sorted_id] 
 visualize_patches(imgs_sorted[:100], title=f"images with highest beta activation for P{P_id}")
 
+#%% for a given row P_i, look for patches with highest beta_i activation 
+P_id = 3
+visualize_grid(P_proj_vis[P_id].unsqueeze(0), title=f"P{P_id}")
+temp_reshaped = rearrange(temp, "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size, n_h=RG, n_w=RG)
+patches_reshaped = rearrange(patches, "bs c p_h p_w n_p -> (bs n_p) c p_h p_w", bs=batch_size, c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE)
+temp_sorted, temp_sorted_id = torch.sort(temp_reshaped[:,P_id], descending=True)
+patches_sorted = patches_reshaped[temp_sorted_id] 
+visualize_patches(normalize_patches_rgb(patches_sorted[:128]), 
+                  title=f"patches with highest activation for P{P_id}", ncol=16)
+
 #%% look at neighbors of patches (fig 4 iclr paper)
-n_neighbors = 100
+n_neighbors = 128
 X = rearrange(temp, "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size, n_h=RG, n_w=RG)
 nn = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine').fit(X)
 #%%
-img_id = 4  # 0 to 999
-patch_id = 400  # 0 to 728
+img_id = 7  # 0 to 999
+patch_id = 400 # 0 to 728
 one_patch = patches[img_id, :, :, :, patch_id]
 neigh_dist, neigh_id = nn.kneighbors(temp.reshape(batch_size, num_dim, RG**2)[img_id, :, patch_id].unsqueeze(0))
 patches_reshaped = rearrange(patches, "bs c p_h p_w n_p -> (bs n_p) c p_h p_w", bs=batch_size, c=3, p_h=PATCH_SIZE, p_w=PATCH_SIZE)
 sorted_patches = patches_reshaped[neigh_id]
-visualize_patches(normalize_patches_rgb(sorted_patches[:100]), title=f"{100} neighbors of img{img_id} patch{patch_id}")
+visualize_patches(normalize_patches_rgb(sorted_patches[:128]), title=f"{128} neighbors of img{img_id} patch{patch_id}", ncol=16)
 plt.show()
 
 #%% don't include image of the original patch. but still includes multiple patches from same image for different images
