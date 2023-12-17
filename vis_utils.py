@@ -61,6 +61,36 @@ def show_P(P_inv: torch.Tensor, phi: torch.Tensor, colorMat: torch.Tensor,
     plt.show()
 
 
+def show_neighbors(patches, temp, img_id=0, patch_id=0,
+                   title="", n_neighbors=200, ncol=20, figsize=(10, 10)):
+    """Given a patch, show its neighbors on manifold.
+
+    Args:
+        patches: torch.Tensor, shape (batch_size, c, patch_size, patch_size, num_patches_per_img)
+        temp: torch.Tensor, shape (batch_size, num_dim, RG**2)
+        img_id: int, 0 to patches.shape[0]-1
+        patch_id: int, 0 to num_patches_per_img
+    
+    Example call: (imgs_test defined earlier in zeyu notebook)
+        batch_size=1000
+        patches = unfold_image(imgs_test[:batch_size],
+                            PATCH_SIZE=PATCH_SIZE, hop_length=hop_length)
+        utils.show_neighbors(patches.cpu(), temp.cpu(), img_id=0, patch_id=15)
+    """
+    batch_size = patches.shape[0]
+    num_patches = temp.shape[-1]
+    num_dim = temp.shape[1]
+    patch_size = patches.shape[2]
+    X = rearrange(temp, "bs f n_h n_w -> (bs n_h n_w) f", bs=batch_size, n_h=num_patches, n_w=num_patches)
+    nn = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine').fit(X)
+    one_patch = patches[img_id, :, :, :, patch_id]
+    neigh_dist, neigh_id = nn.kneighbors(temp.reshape(batch_size, num_dim, num_patches**2)[img_id, :, patch_id].unsqueeze(0))
+    patches_reshaped = rearrange(patches, "bs c p_h p_w n_p -> (bs n_p) c p_h p_w", bs=batch_size, c=3, p_h=patch_size, p_w=patch_size)
+    sorted_patches = patches_reshaped[neigh_id]
+    visualize_patches(sorted_patches[:n_neighbors], title=f"neighbors of img{img_id} patch{patch_id}", ncol=ncol)
+    plt.show()
+
+
 def visualize_patches(patches, title="", figsize=None, colorbar=False, 
                       ncol=None, scale_each=False):
     """
