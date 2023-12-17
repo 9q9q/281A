@@ -1,27 +1,12 @@
 """Utils for visualization."""
 
-from sklearn.metrics import accuracy_score
-from sklearn.linear_model import LogisticRegression, Perceptron, SGDClassifier
 from sklearn.neighbors import NearestNeighbors
-from sklearn.cluster import KMeans
 from einops import rearrange
-import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, Dataset
-import torchvision.datasets as datasets
-import torchvision
 from torchvision.utils import make_grid
-import torch.nn.functional as F
 import torch
-import numpy.linalg as la
 import numpy as np
-import imageio
-from PIL import Image
-from tqdm import tqdm
 import matplotlib.pyplot as plt
-import gc
 from typing import Tuple
-import pickle
-import sys
 
 
 def show_P(P_inv: torch.Tensor, phi: torch.Tensor, colorMat: torch.Tensor, 
